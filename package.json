@@ -2,7 +2,7 @@
   "name": "n8n-nodes-social-shorts",
   "version": "0.1.0",
   "description": "Cross-post short vertical videos from n8n to Instagram Reels, YouTube Shorts, and TikTok.",
-  "author": "iBoss & Contributors",
+  "author": "iBoss <dev@davidio.dev>",
   "license": "MIT",
   "keywords": [
     "n8n-community-node-package",
@@ -14,13 +14,13 @@
     "video",
     "automation"
   ],
-  "homepage": "https://github.com/your-org/n8n-nodes-social-shorts",
+  "homepage": "https://github.com/iboss21/n8n-nodes-social-shorts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/n8n-nodes-social-shorts.git"
+    "url": "git+https://github.com/iboss21/n8n-nodes-social-shorts.git"
   },
   "bugs": {
-    "url": "https://github.com/your-org/n8n-nodes-social-shorts/issues"
+    "url": "https://github.com/iboss21/n8n-nodes-social-shorts/issues"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
