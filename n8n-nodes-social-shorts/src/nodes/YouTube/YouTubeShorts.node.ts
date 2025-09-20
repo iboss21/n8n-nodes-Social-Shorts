@@ -1,5 +1,5 @@
-import type { IExecuteFunctions, INodeExecutionData, INodeType, INodeTypeDescription } from 'n8n-workflow';
 
+import type { IExecuteFunctions, INodeType, INodeTypeDescription } from 'n8n-workflow';
 export class YouTubeShortsNode implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'YouTube Shorts (Stub)',
@@ -7,20 +7,15 @@ export class YouTubeShortsNode implements INodeType {
     icon: 'fa:youtube',
     group: ['output'],
     version: 1,
-    description: 'Resumable upload to YouTube (fill with OAuth & upload calls)',
+    description: 'Resumable upload to YouTube (init + PUT). Fill OAuth + calls.',
     defaults: { name: 'YouTube Shorts (Stub)' },
     inputs: ['main'],
     outputs: ['main'],
     properties: [
       { displayName: 'Title', name: 'title', type: 'string', default: '' },
       { displayName: 'Description', name: 'description', type: 'string', typeOptions: { rows: 4 }, default: '' },
-      { displayName: 'Video Binary Property', name: 'binaryProperty', type: 'string', default: 'data' },
+      { displayName: 'Video Binary Property', name: 'binaryProperty', type: 'string', default: 'data' }
     ],
   };
-
-  async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
-    const items = this.getInputData();
-    // Implementation left as an exercise; keep this as scaffold.
-    return [items];
-  }
+  async execute(this: IExecuteFunctions) { return [this.getInputData()]; }
 }

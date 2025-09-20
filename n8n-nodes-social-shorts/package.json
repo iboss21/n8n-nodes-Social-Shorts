@@ -27,14 +27,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -w -p tsconfig.json",
-    "lint": "echo \"lint disabled in starter\"",
     "prepare": "npm run build"
   },
   "engines": {
     "node": ">=18"
   },
-  "devDependencies": {
-    "typescript": "^5.4.0"
+  "dependencies": {
+    "axios": "^1.6.8"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^18.19.0",
+    "n8n-workflow": "^1.0.0"
+  }
 }

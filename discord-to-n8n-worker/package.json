@@ -1,0 +1,9 @@
+{
+  "name": "discord-to-n8n-worker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "discord-interactions": "^4.0.0"
+  }
+}
