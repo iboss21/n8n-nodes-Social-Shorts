@@ -1,0 +1,870 @@
+{
+  "name": "Shortform Auto-Poster (Veo or FFmpeg) → TikTok, Instagram Reels, YouTube Shorts",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 9
+            }
+          ]
+        }
+      },
+      "id": "Cron",
+      "name": "Cron (Daily)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 2,
+      "position": [
+        300,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "passThrough",
+        "jsCode": "// Central config & feature flags (prefer env vars in production)\nreturn [{\n  json: {\n    RENDER_MODE: $env.RENDER_MODE || 'ffmpeg',   // 'veo' or 'ffmpeg'\n    N8N_BASE_URL: $env.N8N_BASE_URL || '',\n    TOPIC_POOL: ($env.TOPIC_POOL || 'growth hacks; ai tools; dev tips; cybersecurity; storytelling for devs').split(';').map(s=>s.trim()).filter(Boolean),\n    DURATION_SEC: Number($env.DURATION_SEC || 55),\n    ASPECT: '9:16',\n    // Buckets/paths\n    S3_BUCKET: $env.S3_BUCKET || '',\n    S3_PREFIX: $env.S3_PREFIX || 'shorts/',\n    // Platform toggles\n    PUSH_TIKTOK: ($env.PUSH_TIKTOK || 'true') === 'true',\n    PUSH_IG:     ($env.PUSH_IG || 'true') === 'true',\n    PUSH_YT:     ($env.PUSH_YT || 'true') === 'true',\n    // Accounts/IDs (placeholders — set in credentials or env)\n    IG_USER_ID: $env.IG_USER_ID || '',\n    // Notion\n    NOTION_DB_ID: $env.NOTION_DB_ID || '',\n  }\n}];\n"
+      },
+      "id": "Config",
+      "name": "Config (Function)",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        560,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pick a topic of the day (or fetch from a calendar later)\nconst topics = $json.TOPIC_POOL;\nconst topic = topics[Math.floor(Math.random()*topics.length)] || 'developer tips';\nreturn [{ json: { topic } }];\n"
+      },
+      "id": "PickTopic",
+      "name": "Pick Topic",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        820,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "chat",
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a short‑form strategist. Output tight content for vertical video."
+          },
+          {
+            "role": "user",
+            "content": "Niche/topic: {{$json.topic}}\n\nProduce a single JSON with keys:\nhook (<=12 words),\nscript (45–60s; conversational; line breaks),\nstoryboard (array of 5 items each {desc, text}),\nstyle (camera/color/pace/type),\nhashtags (10 items, no punctuation),\ntitle (<=80 chars),\ncta (<=90 chars).\n"
+          }
+        ]
+      },
+      "id": "LLM_IdeaScript",
+      "name": "LLM: Idea & Script",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 4,
+      "position": [
+        1080,
+        200
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_PLACEHOLDER",
+          "name": "OpenAI (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse LLM JSON safely\nconst raw = items[0].json;\nconst msg = raw.choices?.[0]?.message?.content || raw.text || '';\nlet data;\ntry { data = JSON.parse(msg); } catch(e){ data = {hook: msg.slice(0,80), script: msg}; }\nreturn [{ json: data }];\n"
+      },
+      "id": "ParseLLM",
+      "name": "Parse LLM JSON",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a Veo-friendly prompt from the structured plan\nconst j = $json;\nconst lines = (j.storyboard||[]).map((s,i)=>`${i+1}) ${s.desc} — overlay: \"${s.text}\"`).join('\\n');\nconst prompt = `Create a vertical 9:16 video, ~${$prevNode('Config (Function)').json.DURATION_SEC} seconds.\nOverall style: ${j.style}. Prioritize crisp readability for mobile.\n\nScene plan:\n${lines}\n\nNarration (voiceover):\n${j.script}\n\nRequirements:\n- Kinetic subtitles synced to narration\n- Clean cuts every 2–4s\n- Bold high-contrast title cards`.trim();\nreturn [{ json: { prompt } }];\n"
+      },
+      "id": "FormatVeo",
+      "name": "Format Veo Prompt",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$prevNode('Config (Function)').json.RENDER_MODE === 'veo'}}"
+            }
+          ]
+        }
+      },
+      "id": "IfVeo",
+      "name": "IF Veo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1840,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.VEO_GENERATE_URL}}",
+        "options": {
+          "allowUnauthorizedCerts": true
+        },
+        "jsonParameters": true,
+        "sendBody": true,
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "headerParametersJson": "{\"Content-Type\":\"application/json\"}",
+        "queryParametersJson": "{}",
+        "bodyParametersJson": "{\"prompt\":\"={{$prevNode('Format Veo Prompt').json.prompt}}\",\"aspectRatio\":\"9:16\",\"durationSeconds\": \"={{$prevNode('Config (Function)').json.DURATION_SEC}}\"}"
+      },
+      "id": "VeoGenerate",
+      "name": "Veo: Generate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2080,
+        120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VEO_HEADER_AUTH_PLACEHOLDER",
+          "name": "Veo HTTP Header (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$json.operationUrl || $env.VEO_OPERATION_URL}}",
+        "options": {
+          "timeout": 600000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "responseFormat": "json",
+        "jsonParameters": true
+      },
+      "id": "VeoPoll",
+      "name": "Veo: Poll Until Ready",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2320,
+        120
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "VEO_HEADER_AUTH_PLACEHOLDER",
+          "name": "Veo HTTP Header (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$json.mediaUrl}}",
+        "responseFormat": "file"
+      },
+      "id": "DownloadVeo",
+      "name": "Download Video (Veo)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "command": "# Fallback path: simple ffmpeg title card + subtitles from script.\n# Requires ffmpeg installed on host.\n# Writes /tmp/output.mp4\nset -e\nTMPDIR=/tmp/shorts_$(date +%s)\nmkdir -p \"$TMPDIR\"\nprintf \"%s\" \"{{ $json.script }}\" > \"$TMPDIR/script.txt\"\n# Make a basic background (solid color)\nffmpeg -f lavfi -i color=c=black:s=1080x1920:d={{$prevNode('Config (Function)').json.DURATION_SEC}} -vf \"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='{{ $json.hook }}':x=(w-text_w)/2:y=100:fontsize=72:fontcolor=white\" \"$TMPDIR/bg.mp4\"\n# Optional: generate TTS externally and place as $TMPDIR/voice.mp3 (hook up another node before this)\nif [ ! -f \"$TMPDIR/voice.mp3\" ]; then\n  # no voice -> silent with subtitles only\n  ffmpeg -y -i \"$TMPDIR/bg.mp4\" -c:v libx264 -pix_fmt yuv420p /tmp/output.mp4\nelse\n  ffmpeg -y -i \"$TMPDIR/bg.mp4\" -i \"$TMPDIR/voice.mp3\" -shortest -c:v libx264 -pix_fmt yuv420p -c:a aac /tmp/output.mp4\nfi\necho \"/tmp/output.mp4\"\n"
+      },
+      "id": "FFmpegRender",
+      "name": "Render (FFmpeg fallback)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "={{$prevNode('Config (Function)').json.S3_BUCKET}}",
+        "binaryData": true,
+        "fileName": "={{$prevNode('Config (Function)').json.S3_PREFIX}}{{$now}}.mp4",
+        "options": {}
+      },
+      "id": "S3Upload",
+      "name": "S3: Upload Video",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 3,
+      "position": [
+        2800,
+        200
+      ],
+      "credentials": {
+        "s3": {
+          "id": "AWS_S3_CREDENTIAL_PLACEHOLDER",
+          "name": "AWS S3 (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "presign",
+        "bucketName": "={{$prevNode('Config (Function)').json.S3_BUCKET}}",
+        "fileKey": "={{$json.fileName}}",
+        "expiry": 3600
+      },
+      "id": "S3Presign",
+      "name": "S3: Presign URL (1h)",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 3,
+      "position": [
+        3040,
+        200
+      ],
+      "credentials": {
+        "s3": {
+          "id": "AWS_S3_CREDENTIAL_PLACEHOLDER",
+          "name": "AWS S3 (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$prevNode('Config (Function)').json.PUSH_TIKTOK === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfTikTok",
+      "name": "IF TikTok?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.TIKTOK_UPLOAD_INIT}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{\"upload_type\":\"video\"}"
+      },
+      "id": "TT_Init",
+      "name": "TikTok: Init Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3520,
+        40
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "TIKTOK_OAUTH_PLACEHOLDER",
+          "name": "TikTok OAuth (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$json.upload_url}}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "TT_Upload",
+      "name": "TikTok: Upload Binary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3760,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.TIKTOK_PUBLISH}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "jsonParameters": true,
+        "options": {},
+        "bodyParametersJson": "{\"video_id\":\"={{$json.video_id}}\",\"caption\":\"={{$json.caption}}\"}"
+      },
+      "id": "TT_Publish",
+      "name": "TikTok: Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4000,
+        40
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "TIKTOK_OAUTH_PLACEHOLDER",
+          "name": "TikTok OAuth (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$prevNode('Config (Function)').json.PUSH_IG === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfIG",
+      "name": "IF Instagram?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{'https://graph.facebook.com/v19.0/' + $prevNode('Config (Function)').json.IG_USER_ID + '/media'}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "jsonParameters": true,
+        "bodyParametersJson": "{\"media_type\":\"REELS\",\"video_url\":\"={{$prevNode('S3: Presign URL (1h)').json.url}}\",\"caption\":\"={{$prevNode('Caption').json.caption}}\"}"
+      },
+      "id": "IG_Create",
+      "name": "Instagram: Create Container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3520,
+        240
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "FB_IG_OAUTH_PLACEHOLDER",
+          "name": "Facebook/IG OAuth (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{'https://graph.facebook.com/v19.0/' + $prevNode('Config (Function)').json.IG_USER_ID + '/media_publish'}}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {},
+        "jsonParameters": true,
+        "bodyParametersJson": "{\"creation_id\":\"={{$json.id}}\"}"
+      },
+      "id": "IG_Publish",
+      "name": "Instagram: Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3760,
+        240
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "FB_IG_OAUTH_PLACEHOLDER",
+          "name": "Facebook/IG OAuth (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$prevNode('Config (Function)').json.PUSH_YT === true}}"
+            }
+          ]
+        }
+      },
+      "id": "IfYT",
+      "name": "IF YouTube?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        3280,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "resolveWithFullResponse": true
+        },
+        "jsonParameters": true,
+        "headerParametersJson": "{\"X-Upload-Content-Type\":\"video/*\"}",
+        "bodyParametersJson": "{\"snippet\":{\"title\":\"={{$prevNode('Caption').json.title}}\",\"description\":\"={{$prevNode('Caption').json.caption}}\",\"categoryId\":\"22\"},\"status\":{\"privacyStatus\":\"public\",\"selfDeclaredMadeForKids\":false,\"shorts\":\"true\"}}"
+      },
+      "id": "YT_Init",
+      "name": "YouTube: Init Resumable",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3520,
+        380
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "YOUTUBE_OAUTH_PLACEHOLDER",
+          "name": "YouTube OAuth (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$json.headers.location}}",
+        "sendBinaryData": true,
+        "binaryPropertyName": "data"
+      },
+      "id": "YT_Upload",
+      "name": "YouTube: Upload Binary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3760,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build caption once\nconst j = $json;\nconst tags = (j.hashtags||[]).map(h => h.startsWith('#')? h : '#'+h).join(' ');\nconst title = (j.title||j.hook||'New Short').slice(0,80);\nconst caption = `${title}\\n${tags}\\n${j.cta||''}`.slice(0, 400);\nreturn [{ json: { caption, title } }];\n"
+      },
+      "id": "Caption",
+      "name": "Compose Caption",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "databaseId": "={{$prevNode('Config (Function)').json.NOTION_DB_ID}}",
+        "columns": [
+          "Date",
+          "Topic",
+          "Title",
+          "Status",
+          "S3 URL",
+          "TikTok",
+          "Instagram",
+          "YouTube"
+        ],
+        "values": "={{ [ $now, $prevNode('Pick Topic').json.topic, $prevNode('Caption').json.title, 'DONE', $prevNode('S3: Presign URL (1h)').json.url, $json.tiktok_url || '', $json.ig_url || '', $json.yt_url || '' ] }}"
+      },
+      "id": "NotionUpdate",
+      "name": "Notion: Log",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2,
+      "position": [
+        4240,
+        240
+      ],
+      "credentials": {
+        "notionApi": {
+          "id": "NOTION_CRED_PLACEHOLDER",
+          "name": "Notion (set me)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "text": "✅ Short posted\\nTopic: {{$prevNode('Pick Topic').json.topic}}\\nTitle: {{$prevNode('Caption').json.title}}",
+        "channel": "={{$env.DISCORD_CHANNEL_ID}}"
+      },
+      "id": "Discord",
+      "name": "Discord Notify",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [
+        4480,
+        240
+      ],
+      "credentials": {
+        "discordApi": {
+          "id": "DISCORD_CRED_PLACEHOLDER",
+          "name": "Discord (set me)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Cron (Daily)": {
+      "main": [
+        [
+          {
+            "node": "Config (Function)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (Function)": {
+      "main": [
+        [
+          {
+            "node": "Pick Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Topic": {
+      "main": [
+        [
+          {
+            "node": "LLM: Idea & Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM: Idea & Script": {
+      "main": [
+        [
+          {
+            "node": "Parse LLM JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse LLM JSON": {
+      "main": [
+        [
+          {
+            "node": "Format Veo Prompt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Render (FFmpeg fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Veo Prompt": {
+      "main": [
+        [
+          {
+            "node": "IF Veo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Veo?": {
+      "main": [
+        [
+          {
+            "node": "Veo: Generate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Veo: Generate": {
+      "main": [
+        [
+          {
+            "node": "Veo: Poll Until Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Veo: Poll Until Ready": {
+      "main": [
+        [
+          {
+            "node": "Download Video (Veo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Video (Veo)": {
+      "main": [
+        [
+          {
+            "node": "S3: Upload Video",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compose Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render (FFmpeg fallback)": {
+      "main": [
+        [
+          {
+            "node": "S3: Upload Video",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Compose Caption",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3: Upload Video": {
+      "main": [
+        [
+          {
+            "node": "S3: Presign URL (1h)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S3: Presign URL (1h)": {
+      "main": [
+        [
+          {
+            "node": "IF TikTok?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Instagram?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF YouTube?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose Caption": {
+      "main": [
+        [
+          {
+            "node": "IF TikTok?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Instagram?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF YouTube?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF TikTok?": {
+      "main": [
+        [
+          {
+            "node": "TikTok: Init Upload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF Instagram?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok: Init Upload": {
+      "main": [
+        [
+          {
+            "node": "TikTok: Upload Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok: Upload Binary": {
+      "main": [
+        [
+          {
+            "node": "TikTok: Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TikTok: Publish": {
+      "main": [
+        [
+          {
+            "node": "Notion: Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Instagram?": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Create Container",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF YouTube?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Create Container": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Publish": {
+      "main": [
+        [
+          {
+            "node": "Notion: Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF YouTube?": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Init Resumable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion: Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Init Resumable": {
+      "main": [
+        [
+          {
+            "node": "YouTube: Upload Binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube: Upload Binary": {
+      "main": [
+        [
+          {
+            "node": "Notion: Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion: Log": {
+      "main": [
+        [
+          {
+            "node": "Discord Notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {}
+}
