@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-social-shorts",
-  "version": "0.1.0",
-  "description": "Cross-post short vertical videos from n8n to Instagram Reels, YouTube Shorts, and TikTok.",
+  "version": "0.1.1",
+  "description": "Publish short vertical videos from n8n to Instagram Reels (Graph API) with YouTube/TikTok scaffolds.",
   "author": "iBoss <dev@davidio.dev>",
   "license": "MIT",
   "keywords": [
@@ -14,20 +14,21 @@
     "video",
     "automation"
   ],
-  "homepage": "https://github.com/iboss21/n8n-nodes-social-shorts",
+  "homepage": "https://github.com/iboss21/n8n-nodes-Social-Shorts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/iboss21/n8n-nodes-social-shorts.git"
+    "url": "git+https://github.com/iboss21/n8n-nodes-Social-Shorts.git"
   },
   "bugs": {
-    "url": "https://github.com/iboss21/n8n-nodes-social-shorts/issues"
+    "url": "https://github.com/iboss21/n8n-nodes-Social-Shorts/issues"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -w -p tsconfig.json",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "smoke": "node scripts/smoke.js"
   },
   "engines": {
     "node": ">=18"

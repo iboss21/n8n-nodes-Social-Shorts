@@ -18,7 +18,7 @@ export class InstagramReelsNode implements INodeType {
       { displayName: 'Video URL', name: 'videoUrl', type: 'string', default: '', required: true, description: 'Public MP4 URL (S3 presigned recommended)' },
       { displayName: 'Caption', name: 'caption', type: 'string', typeOptions: { rows: 5 }, default: '' },
       { displayName: 'Share to Feed', name: 'shareToFeed', type: 'boolean', default: true },
-      { displayName: 'Access Token', name: 'accessToken', type: 'string', typeOptions: { password: true }, default: '', required: true, description: 'with instagram_content_publish' },
+      { displayName: 'Access Token', name: 'accessToken', type: 'string', typeOptions: { password: true }, default: '', required: true, description: 'with instagram_content_publish scope' },
       { displayName: 'Graph API Version', name: 'graphVersion', type: 'string', default: 'v19.0' }
     ],
   };
@@ -40,17 +40,21 @@ export class InstagramReelsNode implements INodeType {
         params: { media_type: 'REELS', video_url: videoUrl, caption, share_to_feed: shareToFeed ? 'true' : 'false', access_token: accessToken },
         validateStatus: () => true,
       });
-      if (containerRes.status >= 400) throw new Error(`IG container error ${containerRes.status}: ${JSON.stringify(containerRes.data)}`);
+      if (containerRes.status >= 400) {
+        throw new Error(`IG container error ${containerRes.status}: ${JSON.stringify(containerRes.data)}`);
+      }
       const creationId = containerRes.data.id;
 
       const publishRes = await axios.post(`${base}/${igUserId}/media_publish`, null, {
-        params: { creation_id: creationId, access_token: accessToken }, validateStatus: () => true,
+        params: { creation_id: creationId, access_token: accessToken },
+        validateStatus: () => true,
       });
-      if (publishRes.status >= 400) throw new Error(`IG publish error ${publishRes.status}: ${JSON.stringify(publishRes.data)}`);
+      if (publishRes.status >= 400) {
+        throw new Error(`IG publish error ${publishRes.status}: ${JSON.stringify(publishRes.data)}`);
+      }
 
       out.push({ json: { creationId, publish: publishRes.data } });
     }
-
     return [out];
   }
 }
